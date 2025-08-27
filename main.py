@@ -1,4 +1,4 @@
-# app.py - ArcadiaAI Assistant (Fork basato su Phi-2)
+# main.py - ArcadiaAI Assistant (Fork basato su Phi-2)
 from flask import Flask, request, jsonify, send_from_directory
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
@@ -155,4 +155,5 @@ def chat():
 # --- AVVIO ---
 if __name__ == '__main__':
     print("🚀 ArcadiaAI Assistant avviato su http://localhost:5000")
+
     app.run(port=5000, debug=False)
