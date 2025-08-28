@@ -1,159 +1,275 @@
-# main.py - ArcadiaAI Assistant (Fork basato su Phi-2)
-from flask import Flask, request, jsonify, send_from_directory
-from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
+# main.py
+# ArcadiaAI Assistant - Launcher Kivy + Backend logico
+# La GUI è in HTML (gui.html) servita da app.py
+# Tutto in locale
+
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.label import Label
+from kivy.uix.button import Button
+from kivy.core.window import Window
+from kivy.clock import mainthread
 import threading
 import time
+import webbrowser
 import os
-import subprocess
+import sys
 from pathlib import Path
-import requests
-from bs4 import BeautifulSoup
-from duckduckgo_search import ddg
-import json
 
-# --- CONFIGURAZIONE BASE ---
+# --- PERCORSI ---
 BASE_DIR = Path(__file__).parent
-app = Flask(__name__, static_folder='static', template_folder='templates')
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10MB max upload
+APP_PY = BASE_DIR / "app.py"
+GUI_PATH = BASE_DIR / "gui.html"
 
-# --- MODELLO LOCALE: PHI-2 (4-bit) ---
-model = None
-tokenizer = None
-last_used = time.time()
-MODEL_NAME = "microsoft/phi-2"
+# --- IMPORTA MODULI DI LOGICA (senza interfaccia) ---
+from add_your_key import show_api_key_manager, get_api_keys
 
-def load_model():
-    global model, tokenizer, last_used
-    if model is None:
-        print("🔄 Caricamento Phi-2 in 4-bit...")
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        model = AutoModelForCausalLM.from_pretrained(
-            MODEL_NAME,
-            torch_dtype=torch.float16,
-            device_map="auto",
-            load_in_4bit=True
-        )
-        print("✅ Phi-2 caricato!")
-    last_used = time.time()
-    return model, tokenizer
+# --- IDENTITÀ ---
+CES_IDENTITY = {
+    "name": "ArcadiaAI Assistant",
+    "creator": "Mirko Yuri Donato",
+    "version": "3.5",
+    "model": "Phi-3-mini (simulato)",
+    "license": "MPL 2.0",
+    "repository": "https://github.com/Mirko-linux/ArcadiaAI-Assistant"
+}
 
-def unload_model(delay=300):
-    """Scarica il modello dopo X secondi di inattività"""
-    time.sleep(delay)
-    global model, tokenizer
-    if time.time() - last_used >= delay:
-        print("💤 Scarico Phi-2 per risparmiare risorse...")
-        del model
-        del tokenizer
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        model = tokenizer = None
+# --- PAROLE BANNATE (anti-abuso) ---
+PAROLE_BANNATE = []
 
-# --- FUNZIONI CES LOCALI ---
-def search_duckduckgo(query):
-    results = ddg(query, max_results=5)
-    return [{"title": r["title"], "href": r["href"], "body": r["body"]} for r in results]
+# --- COMANDI SAC ---
+SAC_COMMANDS = {
+    "aiuto": "Mostra i comandi",
+    "info": "Informazioni su ArcadiaAI",
+    "cerca [query]": "Cerca su web",
+    "immagine [descrizione]": "Genera un'immagine",
+    "mappe [luogo]": "Mostra una mappa",
+    "app [nome]": "Cerca un'app",
+    "data": "Mostra data e ora",
+    "codice_sorgente": "Link al codice sorgente",
+    "telegraph [testo]": "Pubblica su Telegraph",
+    "telegram [link] [testo]": "Invia a un canale Telegram",
+    "esporta": "Esporta la chat"
+}
 
-def generate_image(prompt):
-    # Usa un modello leggero locale (es. TinyStableDiffusion) o un servizio esterno
-    # Per ora, ritorna un placeholder
-    return f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}"
+# --- BACKEND CES-IMAGE ---
+CES_IMAGE_API = "https://arcadiaai.onrender.com/api/ces-image"
 
-def get_weather(location):
+# --- SIMULAZIONE LLM ---
+def generate_phi3(prompt):
+    simple_responses = {
+        "ciao": "Ciao! Sono ArcadiaAI, il tuo assistente intelligente. 😊",
+        "come stai": "Sto benissimo, grazie per chiedere! Sono qui per aiutarti.",
+        "chi ti ha creato": "Sono stato creato da Mirko Yuri Donato con tanto amore per il software libero!",
+        "grazie": "Di nulla! Sono felice di esserti stato d'aiuto. 😊"
+    }
+    for key in simple_responses:
+        if key in prompt.lower():
+            return simple_responses[key]
+    return "Ho elaborato la tua richiesta. Per funzionalità avanzate, usa i comandi come '@aiuto'."
+
+from jnius import autoclass, cast
+from urllib.parse import quote_plus
+
+def get_installed_apps():
+    """Restituisce una lista di app installate: [{'name': 'WhatsApp', 'package': 'com.whatsapp'}]"""
+    PythonActivity = autoclass('org.kivy.android.PythonActivity')
+    activity = PythonActivity.mActivity
+    pm = activity.getPackageManager()
+
+    apps = []
+    packages = pm.getInstalledPackages(0)
+    for package_info in packages:
+        package_info = cast('android.content.pm.PackageInfo', package_info)
+        app_name = package_info.applicationInfo.loadLabel(pm)
+        package_name = package_info.packageName
+        # Escludi app di sistema non apribili
+        if "android" not in package_name and not package_name.startswith("com.android."):
+            apps.append({
+                "name": app_name.lower(),
+                "package": package_name
+            })
+    return apps
+
+def open_app_by_name(app_name):
+    """Apre un'app per nome (es. 'whatsapp', 'telegram')"""
+    app_name = app_name.lower().strip()
+    
+    # Ottieni lista app installate
     try:
-        url = f"https://wttr.in/{location}?format=j1"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-        temp = data["current_condition"][0]["temp_C"]
-        desc = data["current_condition"][0]["weatherDesc"][0]["value"]
-        return f"🌡️ A {location}: {temp}°C, {desc}"
-    except:
-        return "❌ Impossibile ottenere il meteo."
+        apps = get_installed_apps()
+    except Exception as e:
+        return f"❌ Errore lettura app: {e}"
 
-# --- ROUTES ---
-@app.route('/')
-def index():
-    return send_from_directory('.', 'index.html')
+    # Cerca corrispondenza (anche parziale)
+    for app in apps:
+        if app_name in app["name"] or app["name"] in app_name:
+            try:
+                Intent = autoclass('android.content.Intent')
+                PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                activity = PythonActivity.mActivity
+                
+                intent = activity.getPackageManager().getLaunchIntentForPackage(app["package"])
+                if intent:
+                    activity.startActivity(intent)
+                    return f"✅ Aperto {app['name'].title()}"
+                else:
+                    return f"❌ Impossibile avviare {app['name']}"
+            except Exception as e:
+                return f"❌ Errore: {e}"
+    
+    return f"❌ App '{app_name}' non trovata"
 
-@app.route('/static/<path:path>')
-def static_files(path):
-    return send_from_directory('static', path)
+# --- WAKE-WORD: "EHI ARCADIA" (solo Android) ---
+wake_word_enabled = False
 
-@app.route('/chat', methods=['POST'])
-def chat():
-    global model, tokenizer
-    data = request.get_json()
-    user_message = data.get("message", "").strip()
-    history = data.get("history", [])
-    attachments = data.get("attachments", [])
+if hasattr(sys, 'getandroidapilevel'):  # Rileva Android
+    try:
+        from vosk import Model, KaldiRecognizer
+        import sounddevice as sd
+        import queue
 
-    if not user_message:
-        return jsonify({"reply": "Scrivi un messaggio!"})
+        VOSK_MODEL_PATH = str(BASE_DIR / "assets" / "models" / "vosk-model-small-it")
+        if os.path.exists(VOSK_MODEL_PATH):
+            vosk_model = Model(VOSK_MODEL_PATH)
+            recognizer = KaldiRecognizer(vosk_model, 16000)
+            audio_queue = queue.Queue()
+            wake_word_enabled = True
 
-    # Carica modello
-    model, tokenizer = load_model()
+            def listen_for_wake():
+                with sd.InputStream(samplerate=16000, channels=1, callback=lambda indata, *args: audio_queue.put(bytes(indata)), blocksize=8000):
+                    while True:
+                        data = audio_queue.get()
+                        if recognizer.AcceptWaveform(data):
+                            text = recognizer.Result()[14:-3].lower()
+                            if "ehi arcadia" in text:
+                                print("✅ Wake word rilevata!")
+                                # Puoi inviare un evento a Flask
+                                requests.post("http://localhost:5000/wake", json={"detected": True})
+            threading.Thread(target=listen_for_wake, daemon=True).start()
+    except Exception as e:
+        print(f"❌ Vosk non disponibile: {e}")
 
-    # Wake-word simulato (per test)
-    if user_message.lower().startswith("ehi arcadia"):
-        user_message = user_message[len("ehi arcadia"):].strip()
+# --- SINTESI VOCALE (TTS) ---
+try:
+    from gtts import gTTS
+    import pygame
+    pygame.mixer.init()
+    def speak_text(text):
+        try:
+            tts = gTTS(text=text, lang='it', slow=False)
+            filepath = str(BASE_DIR / "speech.mp3")
+            tts.save(filepath)
+            pygame.mixer.music.load(filepath)
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                time.sleep(0.1)
+        except Exception as e:
+            print("❌ TTS fallito:", e)
+except:
+    def speak_text(text):
+        print(f"[TTS] {text}")
 
-    # Comandi SAC
-    if user_message.startswith("@"):
-        cmd = user_message.split()[0].lower()
-        arg = " ".join(user_message.split()[1:]) if len(user_message.split()) > 1 else ""
-
-        if cmd == "@cerca":
-            results = search_duckduckoggo(arg or "informazioni")
-            res_text = "\n".join([f"🔹 [{r['title']}]({r['href']})" for r in results])
-            reply = f"🔍 Risultati per '{arg}':\n{res_text}"
-
-        elif cmd == "@immagine":
-            img_url = generate_image(arg or "un paesaggio")
-            reply = f"🖼️ Ecco l'immagine:\n![]({img_url})"
-
-        elif cmd == "@meteo":
-            reply = get_weather(arg or "Roma")
-
-        elif cmd == "@data":
-            reply = f"📅 Oggi è {time.strftime('%d/%m/%Y, %H:%M')}"
-
-        elif cmd == "@aiuto":
-            reply = (
-                "🎯 Comandi disponibili:\n"
-                "- `@cerca [query]` → ricerca web\n"
-                "- `@immagine [descrizione]` → genera immagine\n"
-                "- `@meteo [luogo]` → meteo\n"
-                "- `@data` → data/ora\n"
-                "- `@app [nome]` → cerca app (Flathub, Snap, ecc.)\n"
-                "- `@aiuto` → mostra questo messaggio"
-            )
-
-        else:
-            reply = f"❌ Comando '{cmd}' non riconosciuto. Usa `@aiuto`."
-
+# --- GESTIONE COMANDI ---
+def handle_sac_command(command, argument=""):
+    command = command.lower().strip()
+    if command == "apri" and argument:
+        return open_app_by_name(argument)
+    if command == "aiuto":
+        return "[b]🎯 Comandi disponibili:[/b]\n" + "\n".join([f"- [i]@{cmd}[/i] → {desc}" for cmd, desc in SAC_COMMANDS.items()])
+    elif command == "info":
+        return f"[b]ℹ️ {CES_IDENTITY['name']} v{CES_IDENTITY['version']}[/b]\n• Creatore: {CES_IDENTITY['creator']}\n• Modello: {CES_IDENTITY['model']}\n• [ref={CES_IDENTITY['repository']}][color=0000ff]Codice sorgente[/color][/ref]"
+    elif command == "data":
+        from datetime import datetime
+        return f"📅 Oggi è {datetime.now().strftime('%d/%m/%Y, %H:%M')}"
+    elif command == "cerca" and argument:
+        try:
+            from duckduckgo_search import ddg
+            results = ddg(argument, max_results=3)
+            return "\n".join([f"[ref={r['href']}][color=0000ff][u]{r['title']}[/u][/color][/ref]" for r in results])
+        except:
+            return "❌ Ricerca fallita."
+    elif command == "immagine" and argument:
+        if not argument:
+            return "❌ Specifica cosa disegnare."
+        if any(parola in argument.lower() for parola in PAROLE_BANNATE):
+            return "❌ Questo prompt non è consentito."
+        try:
+            import requests
+            response = requests.post(CES_IMAGE_API, json={"prompt": argument}, timeout=20)
+            if response.status_code == 200:
+                data = response.json()
+                return "__IMAGE__:" + data.get("image_url") if data.get("image_url") else "⚠️ Nessuna immagine."
+            return f"❌ Errore API: {response.status_code}"
+        except Exception as e:
+            return f"❌ Errore: {e}"
     else:
-        # Prompt contestuale
-        prompt = (
-            "Sei ArcadiaAI Assistant, un assistente open source locale basato su Phi-2.\n"
-            "Creatore: Mirko Yuri Donato\n"
-            "Rispondi in modo chiaro, utile e conciso.\n\n"
+        return "❌ Comando non riconosciuto. Usa `@aiuto`."
+
+# --- AVVIA IL SERVER FLASK ---
+def start_flask_server():
+    import subprocess
+    subprocess.Popen([sys.executable, str(APP_PY)], cwd=BASE_DIR)
+
+# --- APP KIVY (SOLO LAUNCHER) ---
+class ArcadiaAIApp(App):
+    def build(self):
+        Window.clearcolor = (0.9, 0.95, 1, 1)
+        layout = BoxLayout(orientation='vertical', padding=20, spacing=15)
+
+        # Titolo
+        layout.add_widget(Label(
+            text="[b]ArcadiaAI Assistant[/b]",
+            markup=True,
+            font_size=24,
+            color=(0.1, 0.3, 0.6, 1),
+            size_hint_y=None,
+            height=60
+        ))
+
+        # Pulsante "Avvia Assistente"
+        start_btn = Button(
+            text="🚀 Avvia Assistente",
+            font_size=18,
+            size_hint_y=None,
+            height=60,
+            background_color=(0.1, 0.5, 0.8, 1),
+            color=(1, 1, 1, 1)
         )
-        for msg in history[-6:]:
-            prompt += f"{msg['role']}: {msg['content']}\n"
-        prompt += f"Utente: {user_message}\nArcadiaAI:"
+        start_btn.bind(on_press=self.start_assistant)
+        layout.add_widget(start_btn)
 
-        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(model.device)
-        outputs = model.generate(**inputs, max_new_tokens=256, pad_token_id=tokenizer.eos_token_id)
-        reply = tokenizer.decode(outputs[0], skip_special_tokens=True).split("ArcadiaAI:")[-1].strip()
+        # Pulsante "API Esterne"
+        keys_btn = Button(
+            text="🔑 API Esterne (opzionale)",
+            font_size=16,
+            size_hint_y=None,
+            height=50,
+            background_color=(0.9, 0.9, 0.9, 1),
+            color=(0.2, 0.2, 0.2, 1)
+        )
+        keys_btn.bind(on_press=lambda x: show_api_key_manager())
+        layout.add_widget(keys_btn)
 
-    # Avvia thread per scarico modello
-    threading.Thread(target=unload_model, daemon=True).start()
+        # Stato
+        self.status = Label(
+            text="Pronto",
+            font_size=14,
+            color=(0.5, 0.5, 0.5, 1),
+            size_hint_y=None,
+            height=40
+        )
+        layout.add_widget(self.status)
 
-    return jsonify({"reply": reply})
+        return layout
+
+    def start_assistant(self, *args):
+        self.status.text = "Avvio server..."
+        threading.Thread(target=start_flask_server, daemon=True).start()
+        time.sleep(2)
+        webbrowser.open("http://localhost:5000")
+        self.status.text = "✅ Aperto in browser!"
 
 # --- AVVIO ---
 if __name__ == '__main__':
-    print("🚀 ArcadiaAI Assistant avviato su http://localhost:5000")
-
-    app.run(port=5000, debug=False)
+    ArcadiaAIApp().run()
