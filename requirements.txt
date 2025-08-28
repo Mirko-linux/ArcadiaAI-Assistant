@@ -1,0 +1,9 @@
+kivy
+flask
+pyjnius
+vosk
+sounddevice
+requests
+duckduckgo-search
+gtts
+pygame
