@@ -12,7 +12,7 @@ Perfetto per dispositivi senza Google Services (Huawei, /e/, GrapheneOS, Lineage
 
 ---
 ## Caratteristiche
-ArcadiaAI Assistant si basa su [ArcadiaAI](https://github.com/Mirko-linux/ArcadiaAI), ma a differenza di esso, Assistant usa Phi 3 Mini, un piccolo modello locale da 3B di parametri porigettato per essere eseguito su cellulari di fascia media. 
+ArcadiaAI Assistant si basa su [ArcadiaAI](https://github.com/Mirko-linux/ArcadiaAI), ma a differenza di esso, Assistant usa Phi 3 Mini, un piccolo modello locale da 3B di parametri progettato per essere eseguito su cellulari di fascia media. 
 Il modello verrà installato automaticamente assieme all'app e verrà eseguito solo quando questa è attiva risparmiando notevolmente sulle risorse del telefono.
 
 ### Funzionalità principali
