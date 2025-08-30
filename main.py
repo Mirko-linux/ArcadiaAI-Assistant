@@ -1,7 +1,4 @@
 # main.py
-# ArcadiaAI Assistant - Launcher Kivy + Backend logico
-# La GUI è in HTML (gui.html) servita da app.py
-# Tutto in locale
 
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
@@ -15,11 +12,47 @@ import webbrowser
 import os
 import sys
 from pathlib import Path
+from cython import compile_file
+from jnius import autoclass, cast
+
+# --- GESTIONE CONFIGURAZIONE ---
+import json
+from pathlib import Path
 
 # --- PERCORSI ---
 BASE_DIR = Path(__file__).parent
 APP_PY = BASE_DIR / "app.py"
 GUI_PATH = BASE_DIR / "gui.html"
+CONFIG_FILE = BASE_DIR / "user_config.json"
+
+DEFAULT_CONFIG = {
+    "model_version": "balanced",
+    "use_cloud": False,
+    "wake_word_enabled": True
+}
+
+def load_config():
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            pass
+    return DEFAULT_CONFIG.copy()
+
+def save_config(config):
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2)
+        return True
+    except Exception as e:
+        print(f"❌ Errore salvataggio: {e}")
+        return False
+
+# Carica la configurazione all'avvio
+config = load_config()
+
+
 
 # --- IMPORTA MODULI DI LOGICA (senza interfaccia) ---
 from add_your_key import show_api_key_manager, get_api_keys
@@ -36,6 +69,24 @@ CES_IDENTITY = {
 
 # --- PAROLE BANNATE (anti-abuso) ---
 PAROLE_BANNATE = []
+
+MODEL_CONFIGS = {
+    "full": {
+        "url": "https://huggingface.co/microsoft/Phi-3-mini-4K-instruct-onnx/resolve/main/cpu-and-gpu-fp16/model.onnx",
+        "path": "assets/models/phi3-full.onnx",
+        "description": "Alta qualità, richiede 4GB+ RAM"
+    },
+    "balanced": {
+        "url": "https://huggingface.co/microsoft/Phi-3-mini-4K-instruct-onnx/resolve/main/cpu-int4-rtn-block-128/model.onnx",
+        "path": "assets/models/phi3-balanced.onnx",
+        "description": "Qualità e velocità bilanciate"
+    },
+    "light": {
+        "url": "https://huggingface.co/microsoft/Phi-3-mini-4K-instruct-onnx/resolve/main/cpu-int4-rtn-block-32/model.onnx",
+        "path": "assets/models/phi3-light.onnx",
+        "description": "Leggera, per dispositivi con poca RAM"
+    }
+}
 
 # --- COMANDI SAC ---
 SAC_COMMANDS = {
@@ -68,7 +119,6 @@ def generate_phi3(prompt):
             return simple_responses[key]
     return "Ho elaborato la tua richiesta. Per funzionalità avanzate, usa i comandi come '@aiuto'."
 
-from jnius import autoclass, cast
 from urllib.parse import quote_plus
 
 def get_installed_apps():
@@ -169,6 +219,82 @@ try:
 except:
     def speak_text(text):
         print(f"[TTS] {text}")
+def show_model_choice_popup():
+    from kivy.uix.popup import Popup
+    from kivy.uix.boxlayout import BoxLayout
+    from kivy.uix.label import Label
+    from kivy.uix.button import Button
+
+    layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
+
+    layout.add_widget(Label(
+        text="🔧 Scegli la versione del modello:",
+        size_hint_y=None,
+        height=40
+    ))
+
+    # Carica configurazione
+    config = load_config()
+
+    for key, info in MODEL_CONFIGS.items():
+        btn = Button(
+            text=f"{key.capitalize()}\n{info['description']}",
+            size_hint_y=None,
+            height=80
+        )
+        if config.get("model_version") == key:
+            btn.background_color = (0.1, 0.6, 0.9, 1)  # Blu selezionato
+            btn.color = (1, 1, 1, 1)
+
+        def on_press(k=key):
+            config["model_version"] = k
+            save_config(config)
+            App.get_running_app().chatbox.add_message(f"✅ Modello impostato su {k}. Riavvia per applicare.")
+            popup.dismiss()
+
+        btn.bind(on_press=on_press)
+        layout.add_widget(btn)
+
+    popup = Popup(
+        title="Versione modello",
+        content=layout,
+        size_hint=(0.9, 0.8)
+    )
+    popup.open()
+
+phi3_session = None
+phi3_tokenizer = None
+
+def load_phi3_model():
+    global phi3_session, phi3_tokenizer
+
+    config = load_config()
+    model_key = config.get("model_version", "balanced")
+    model_info = MODEL_CONFIGS[model_key]
+
+    if not os.path.exists(model_info["path"]):
+        App.get_running_app().chatbox.add_message(
+            f"⚠️ Modello {model_key} non trovato. Usa `@aiuto` per scaricarlo."
+        )
+        return None, None
+
+    try:
+        from transformers import AutoTokenizer
+        import onnxruntime as ort
+
+        print(f"🔄 Caricamento modello: {model_key}...")
+        phi3_tokenizer = AutoTokenizer.from_pretrained("microsoft/Phi-3-mini-4K-instruct")
+        phi3_session = ort.InferenceSession(
+            model_info["path"],
+            providers=['CPUExecutionProvider']
+        )
+        print("✅ Modello caricato!")
+        return phi3_session, phi3_tokenizer
+    except Exception as e:
+        print(f"❌ Errore caricamento: {e}")
+        return None, None
+    
+
 
 # --- GESTIONE COMANDI ---
 def handle_sac_command(command, argument=""):
@@ -182,6 +308,23 @@ def handle_sac_command(command, argument=""):
     elif command == "data":
         from datetime import datetime
         return f"📅 Oggi è {datetime.now().strftime('%d/%m/%Y, %H:%M')}"
+    elif command == "modello":
+        if not argument:
+            current = config.get("model_version", "balanced")
+            return (
+                f"🔧 **Modello attuale**: {current}\n\n"
+                "Disponibili:\n"
+                "• `@modello completa`\n"
+                "• `@modello bilanciata`\n"
+                "• `@modello leggera`\n\n"
+                "Usa `@aiuto` per scaricare il modello scelto."
+            )
+        elif argument in ["completa", "bilanciata", "leggera"]:
+            config["model_version"] = {"completa": "full", "bilanciata": "balanced", "leggera": "light"}[argument]
+            save_config(config)
+            return f"✅ Modello impostato su **{argument}**. Riavvia per applicare."
+        else:
+            return "❌ Usa: `@modello [completa|bilanciata|leggera]`"
     elif command == "cerca" and argument:
         try:
             from duckduckgo_search import ddg
@@ -205,7 +348,7 @@ def handle_sac_command(command, argument=""):
             return f"❌ Errore: {e}"
     else:
         return "❌ Comando non riconosciuto. Usa `@aiuto`."
-
+    
 # --- AVVIA IL SERVER FLASK ---
 def start_flask_server():
     import subprocess
