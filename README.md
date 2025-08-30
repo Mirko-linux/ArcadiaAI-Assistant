@@ -1,4 +1,7 @@
 # ArcadiaAI-Assistant
+<p align="center">
+  <img src="./ArcadiaAI_Assistant.png" alt="Logo ArcadiaAI" width="200"/>
+</p>
 
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 [![F-Droid Friendly](https://img.shields.io/badge/F--Droid-friendly-brightgreen)](https://f-droid.org)
