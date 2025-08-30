@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ArcadiaAI Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 480px;
+            height: 100vh;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 0;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.2);
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            overflow: hidden;
+        }
+
+        @media (min-width: 768px) {
+            .container {
+                height: 90vh;
+                border-radius: 20px;
+            }
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            position: relative;
+            z-index: 100;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 600;
+            margin: 0;
+            opacity: 0;
+            animation: fadeInDown 0.8s ease forwards;
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            background: #4CAF50;
+            border-radius: 50%;
+            position: absolute;
+            top: 25px;
+            right: 25px;
+            animation: pulse 2s infinite;
+        }
+
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8f9fa;
+            position: relative;
+        }
+
+        .chat-container::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .chat-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: rgba(102, 126, 234, 0.3);
+            border-radius: 2px;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: slideIn 0.5s ease forwards;
+        }
+
+        .message.user {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .message.ai {
+            display: flex;
+            justify-content: flex-start;
+        }
+
+        .message-bubble {
+            max-width: 75%;
+            padding: 15px 20px;
+            border-radius: 25px;
+            font-size: 16px;
+            line-height: 1.4;
+            position: relative;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            word-wrap: break-word;
+        }
+
+        .message.user .message-bubble {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom-right-radius: 8px;
+        }
+
+        .message.ai .message-bubble {
+            background: white;
+            color: #333;
+            border-bottom-left-radius: 8px;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .typing-indicator {
+            display: none;
+            align-items: center;
+            padding: 15px 20px;
+            background: white;
+            border-radius: 25px;
+            border-bottom-left-radius: 8px;
+            max-width: 75%;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .typing-indicator.show {
+            display: flex;
+        }
+
+        .typing-dots {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .typing-dots span {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #667eea;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+
+        .typing-dots span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+        .image-message {
+            max-width: 100%;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-top: 10px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        }
+
+        .image-message img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .input-container {
+            background: white;
+            padding: 20px;
+            border-top: 1px solid rgba(0, 0, 0, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .input-wrapper {
+            flex: 1;
+            position: relative;
+            background: #f0f0f0;
+            border-radius: 25px;
+            overflow: hidden;
+        }
+
+        .message-input {
+            width: 100%;
+            border: none;
+            outline: none;
+            padding: 15px 20px;
+            font-size: 16px;
+            background: transparent;
+            border-radius: 25px;
+        }
+
+        .message-input::placeholder {
+            color: #999;
+        }
+
+        .action-button {
+            width: 50px;
+            height: 50px;
+            border: none;
+            border-radius: 25px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .action-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .action-button:active {
+            transform: scale(0.95);
+        }
+
+        .action-button.listening {
+            background: #ff4757;
+            animation: pulse 1s infinite;
+        }
+
+        .floating-particles {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 50%;
+            animation: float 6s infinite linear;
+        }
+
+        .welcome-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 1000;
+            opacity: 1;
+            transition: opacity 1s ease;
+        }
+
+        .welcome-screen.hide {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .logo {
+            width: 120px;
+            height: 120px;
+            border-radius: 30px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            margin-bottom: 30px;
+            animation: logoFloat 3s ease-in-out infinite;
+        }
+
+        .welcome-text {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .welcome-text h2 {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .welcome-text p {
+            font-size: 18px;
+            opacity: 0.8;
+        }
+
+        @keyframes fadeInDown {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes slideIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.05); }
+        }
+
+        @keyframes typing {
+            0%, 80%, 100% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        @keyframes float {
+            0% {
+                transform: translateY(100vh) rotate(0deg);
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(-10px) rotate(360deg);
+                opacity: 0;
+            }
+        }
+
+        @keyframes logoFloat {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .suggestion-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+            padding: 0 20px;
+        }
+
+        .chip {
+            background: white;
+            color: #667eea;
+            border: 1px solid rgba(102, 126, 234, 0.2);
+            border-radius: 20px;
+            padding: 8px 16px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+
+        .chip:hover {
+            background: #667eea;
+            color: white;
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="welcome-screen" id="welcomeScreen">
+        <div class="logo">
+        <img src="ArcadiaAI_Assistant.png" alt="Logo dell'app" width="50%">
+        </div>
+            <div class="welcome-text">
+                <h2>ArcadiaAI Assistant</h2>
+                <p>Il tuo assistente intelligente</p>
+            </div>
+        </div>
+
+        <div class="floating-particles" id="particles"></div>
+
+        <div class="header">
+            <h1>ArcadiaAI Assistant</h1>
+            <div class="status-indicator"></div>
+        </div>
+
+        <div class="suggestion-chips">
+            <div class="chip" onclick="sendSuggestion('@aiuto')">Mostra aiuto</div>
+            <div class="chip" onclick="sendSuggestion('@info')">Info sistema</div>
+            <div class="chip" onclick="sendSuggestion('@data')">Data e ora</div>
+            <div class="chip" onclick="sendSuggestion('@immagine paesaggio futuristico')">Genera immagine</div>
+        </div>
+
+        <div class="chat-container" id="chatContainer">
+            <div class="message ai">
+                <div class="message-bubble">
+                    👋 Ciao! Sono <strong>ArcadiaAI Assistant</strong>. Usa <code>@aiuto</code> per scoprire tutti i comandi disponibili.
+                </div>
+            </div>
+
+            <div class="typing-indicator" id="typingIndicator">
+                <div class="typing-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+                <span style="margin-left: 10px; color: #999;">ArcadiaAI sta scrivendo...</span>
+            </div>
+        </div>
+
+        <div class="input-container">
+            <button class="action-button" id="micButton" onclick="toggleMic()">🎤</button>
+            <div class="input-wrapper">
+                <input type="text" class="message-input" id="messageInput" 
+                       placeholder="Scrivi un messaggio o usa '@aiuto' per i comandi...">
+            </div>
+            <button class="action-button" id="sendButton" onclick="sendMessage()">➤</button>
+        </div>
+    </div>
+
+    <script>
+        let isListening = false;
+        let useVoice = false;
+        let messageCount = 0;
+
+        // Simulazione delle risposte dell'assistente
+        const responses = {
+            'ciao': 'Ciao! Sono ArcadiaAI, il tuo assistente intelligente. 😊',
+            'come stai': 'Sto benissimo, grazie per chiedere! Sono qui per aiutarti.',
+            'chi ti ha creato': 'Sono stato creato da Mirko Yuri Donato con tanto amore per il software libero!',
+            'grazie': 'Di nulla! Sono felice di esserti stato d\'aiuto. 😊'
+        };
+
+        const sacCommands = {
+            'aiuto': `🎯 <strong>Comandi disponibili:</strong><br>
+                     • <em>@aiuto</em> → Mostra i comandi<br>
+                     • <em>@info</em> → Informazioni su ArcadiaAI<br>
+                     • <em>@cerca [query]</em> → Cerca su web<br>
+                     • <em>@immagine [descrizione]</em> → Genera un'immagine<br>
+                     • <em>@data</em> → Mostra data e ora<br>
+                     • <em>@mappe [luogo]</em> → Mostra una mappa`,
+            'info': `ℹ️ <strong>ArcadiaAI Assistant v3.5</strong><br>
+                    • Creatore: Mirko Yuri Donato<br>
+                    • Modello: Phi-3-mini (simulato)<br>
+                    • Licenza: MPL 2.0<br>
+                    • <a href="https://github.com/Mirko-linux/ArcadiaAI-Assistant" target="_blank" style="color: #667eea;">Codice sorgente</a>`,
+            'data': `📅 Oggi è ${new Date().toLocaleDateString('it-IT', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            })}`
+        };
+
+        function createParticles() {
+            const container = document.getElementById('particles');
+            for (let i = 0; i < 20; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'particle';
+                particle.style.left = Math.random() * 100 + '%';
+                particle.style.animationDelay = Math.random() * 6 + 's';
+                particle.style.animationDuration = (6 + Math.random() * 4) + 's';
+                container.appendChild(particle);
+            }
+        }
+
+        function hideWelcomeScreen() {
+            setTimeout(() => {
+                document.getElementById('welcomeScreen').classList.add('hide');
+            }, 2000);
+        }
+
+        function addMessage(text, isUser = false, isImage = false) {
+            const chatContainer = document.getElementById('chatContainer');
+            const typingIndicator = document.getElementById('typingIndicator');
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user' : 'ai'}`;
+            messageDiv.style.animationDelay = (messageCount * 0.1) + 's';
+            
+            const bubbleDiv = document.createElement('div');
+            bubbleDiv.className = 'message-bubble';
+            
+            if (isImage && !isUser) {
+                const imageDiv = document.createElement('div');
+                imageDiv.className = 'image-message';
+                imageDiv.innerHTML = `<img src="https://picsum.photos/400/300?random=${Date.now()}" alt="Immagine generata">`;
+                bubbleDiv.appendChild(imageDiv);
+                bubbleDiv.innerHTML += '<br>🎨 Ecco l\'immagine che ho generato per te!';
+            } else {
+                bubbleDiv.innerHTML = text;
+            }
+            
+            messageDiv.appendChild(bubbleDiv);
+            chatContainer.insertBefore(messageDiv, typingIndicator);
+            
+            messageCount++;
+            scrollToBottom();
+        }
+
+        function showTyping() {
+            document.getElementById('typingIndicator').classList.add('show');
+            scrollToBottom();
+        }
+
+        function hideTyping() {
+            document.getElementById('typingIndicator').classList.remove('show');
+        }
+
+        function scrollToBottom() {
+            const chatContainer = document.getElementById('chatContainer');
+            setTimeout(() => {
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }, 100);
+        }
+
+        function processMessage(message) {
+            const msgLower = message.toLowerCase().trim();
+            
+            // Comando SAC
+            if (msgLower.startsWith('@')) {
+                const parts = msgLower.split(' ');
+                const command = parts[0].substring(1);
+                const args = parts.slice(1).join(' ');
+                
+                if (command === 'immagine' && args) {
+                    return { response: `🎨 Generando immagine: "${args}"...`, isImage: true };
+                } else if (sacCommands[command]) {
+                    return { response: sacCommands[command], isImage: false };
+                } else {
+                    return { response: '❌ Comando non riconosciuto. Usa <code>@aiuto</code>.', isImage: false };
+                }
+            }
+            
+            // Risposte semplici
+            for (const key in responses) {
+                if (msgLower.includes(key)) {
+                    return { response: responses[key], isImage: false };
+                }
+            }
+            
+            // Risposta generica
+            return { 
+                response: 'Ho elaborato la tua richiesta. Per funzionalità avanzate, usa i comandi come <code>@aiuto</code> per scoprire tutto ciò che posso fare!',
+                isImage: false 
+            };
+        }
+
+async function sendMessage() {
+    const input = document.getElementById('messageInput');
+    const text = input.value.trim();
+    
+    if (!text) return;
+    
+    addMessage(text, true);
+    input.value = '';
+    
+    showTyping();
+    
+    try {
+        const response = await fetch('http://localhost:5000/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text })
+        });
+        
+        const data = await response.json();
+        hideTyping();
+        addMessage(data.reply, false);
+    } catch (error) {
+        hideTyping();
+        addMessage('❌ Errore: impossibile contattare il backend.', false);
+    }
+}
+
+        function sendSuggestion(text) {
+            document.getElementById('messageInput').value = text;
+            sendMessage();
+        }
+
+isListening = true
+let mediaRecorder;
+let audioChunks = [];
+
+async function toggleMic() {
+    const micButton = document.getElementById('micButton');
+    
+    if (!isListening) {
+        try {
+            // Chiedi accesso al microfono
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            micButton.classList.add('listening');
+            micButton.innerHTML = '🛑';
+            isListening = true;
+
+            // Inizializza MediaRecorder
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                const reader = new FileReader();
+                reader.onload = async () => {
+                    const base64Audio = reader.result;
+
+                    // Invia a Flask per trascrizione
+                    const response = await fetch('http://localhost:5000/transcribe', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ audio: base64Audio })
+                    });
+
+                    const data = await response.json();
+                    const transcript = data.text;
+
+                    if (transcript) {
+                        addMessage(transcript, true);
+                        sendMessageToAI(transcript);
+                    }
+                };
+                reader.readAsDataURL(audioBlob);
+            };
+
+            mediaRecorder.start();
+        } catch (error) {
+            console.error("❌ Errore accesso microfono:", error);
+            alert("Impossibile accedere al microfono. Assicurati di aver dato i permessi.");
+        }
+    } else {
+        // Ferma la registrazione
+        mediaRecorder.stop();
+        stream.getTracks().forEach(track => track.stop());
+        micButton.classList.remove('listening');
+        micButton.innerHTML = '🎤';
+        isListening = false;
+    }
+}
+
+// Funzione per inviare il testo all'IA
+async function sendMessageToAI(text) {
+    showTyping();
+    try {
+        const response = await fetch('http://localhost:5000/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text })
+        });
+        const data = await response.json();
+        hideTyping();
+        addMessage(data.reply, false);
+    } catch (error) {
+        hideTyping();
+        addMessage('❌ Errore di comunicazione con l’IA.', false);
+    }
+}
+
+        // Event listeners
+        document.getElementById('messageInput').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Inizializzazione
+        document.addEventListener('DOMContentLoaded', function() {
+            createParticles();
+            hideWelcomeScreen();
+        });
+    </script>
+</body>
+</html>
